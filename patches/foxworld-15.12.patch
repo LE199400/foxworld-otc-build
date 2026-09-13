@@ -1,0 +1,54 @@
+diff --git a/src/client/protocolgameparse.cpp b/src/client/protocolgameparse.cpp
+index 4d81f4f..73b09b1 100644
+--- a/src/client/protocolgameparse.cpp
++++ b/src/client/protocolgameparse.cpp
+@@ -1206,11 +1206,10 @@ void ProtocolGame::parseStoreOffers(const InputMessagePtr& msg)
+ 
+             offer.tryOnType = msg->getU8();
+ 
+-            if (g_game.getClientVersion() <= 1310) {
+-                auto test = msg->getString();
+-            } else {
+-                offer.collection = msg->getU16();
+-            }
++            // FoxWorld 15.12 sends the offer filter as a string here.
++            // Reading this field as uint16_t desynchronizes the remainder of
++            // the store packet and turns arbitrary bytes into invalid item IDs.
++            msg->getString();
+ 
+             offer.popularityScore = msg->getU16();
+             offer.stateNewUntil = msg->getU32();
+@@ -1907,14 +1906,30 @@ void ProtocolGame::parseWorldLight(const InputMessagePtr& msg)
+ 
+ void ProtocolGame::parseMagicEffect(const InputMessagePtr& msg)
+ {
+-    const auto& pos = getPosition(msg);
++    auto pos = getPosition(msg);
+     if (g_game.getProtocolVersion() >= 1203) {
++        const uint16_t westBound = pos.x;
++        const uint16_t eastBound = pos.x + 18;
++
+         uint8_t effectType = msg->getU8();
+         while (effectType != Otc::MAGIC_EFFECTS_END_LOOP) {
+             switch (effectType) {
+-                case Otc::MAGIC_EFFECTS_DELAY:
++                case Otc::MAGIC_EFFECTS_DELAY: {
++                    // Protocol 15.x sends the delay as uint16_t.
++                    msg->getU16();
++                    break;
++                }
+                 case Otc::MAGIC_EFFECTS_DELTA: {
+-                    msg->getU8(); // ?
++                    // Move from the packet's current map position to the next
++                    // effect position. The server scans an 18-tile-wide area.
++                    uint16_t jumps = msg->getU8();
++                    while (jumps-- > 0) {
++                        ++pos.x;
++                        if (pos.x >= eastBound) {
++                            pos.x = westBound;
++                            ++pos.y;
++                        }
++                    }
+                     break;
+                 }
+ 
