@@ -1,0 +1,71 @@
+name: Build FoxWorld Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 180
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Checkout build files
+        uses: actions/checkout@v6
+
+      - name: Download OTC Redemption 4.1
+        shell: pwsh
+        run: git clone --branch 4.1 --depth 1 https://github.com/mehah/otclient.git otclient
+
+      - name: Apply FoxWorld fixes
+        shell: pwsh
+        run: |
+          Set-Location otclient
+          git apply ../patches/foxworld-15.12.patch
+          git diff --check
+
+      - name: Read vcpkg baseline
+        shell: pwsh
+        run: |
+          $json = Get-Content otclient/vcpkg.json -Raw | ConvertFrom-Json
+          "VCPKG_GIT_COMMIT_ID=$($json.'builtin-baseline')" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: "${{ github.workspace }}/vcpkg"
+          vcpkgGitURL: "https://github.com/microsoft/vcpkg.git"
+          vcpkgGitCommitId: "${{ env.VCPKG_GIT_COMMIT_ID }}"
+
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure and compile
+        shell: pwsh
+        run: |
+          Set-Location otclient
+          cmake --preset windows-release -DTOGGLE_BIN_FOLDER=ON -DOPTIONS_ENABLE_IPO=OFF -DOPTIONS_ENABLE_SCCACHE=OFF -DOTCLIENT_BUILD_TESTS=OFF
+          cmake --build --preset windows-release --parallel 2
+
+      - name: Rename executable
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem otclient/build/windows-release/bin -Filter "*.exe" -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "Executable not found" }
+          Copy-Item $exe.FullName "otclient/build/windows-release/bin/FoxWorld.exe" -Force
+
+      - name: Upload FoxWorld client
+        uses: actions/upload-artifact@v7
+        with:
+          name: FoxWorld-Windows
+          path: otclient/build/windows-release/bin/
+          if-no-files-found: error
+
