@@ -1,5 +1,5 @@
 diff --git a/src/client/protocolgameparse.cpp b/src/client/protocolgameparse.cpp
-index 4d81f4f..73b09b1 100644
+index 4d81f4f..29002fc 100644
 --- a/src/client/protocolgameparse.cpp
 +++ b/src/client/protocolgameparse.cpp
 @@ -1206,11 +1206,10 @@ void ProtocolGame::parseStoreOffers(const InputMessagePtr& msg)
@@ -52,3 +52,31 @@ index 4d81f4f..73b09b1 100644
                      break;
                  }
  
+@@ -2590,7 +2605,10 @@ void ProtocolGame::parsePlayerStats(const InputMessagePtr& msg) const
+ 
+     const uint64_t experience = g_game.getFeature(Otc::GameDoubleExperience) ? msg->getU64() : msg->getU32();
+     const uint16_t level = g_game.getFeature(Otc::GameLevelU16) ? msg->getU16() : msg->getU8();
+-    const uint16_t levelPercent = g_game.getFeature(Otc::GameLevelPercentU16) ? msg->getU16() : static_cast<uint16_t>(msg->getU8());
++    // FoxWorld 15.12 already sends level percent as uint16_t (value * 100).
++    const uint16_t levelPercent = (g_game.getClientVersion() >= 1512 || g_game.getFeature(Otc::GameLevelPercentU16))
++                                      ? msg->getU16()
++                                      : static_cast<uint16_t>(msg->getU8());
+ 
+     if (g_game.getFeature(Otc::GameExperienceBonus)) {
+         if (g_game.getClientVersion() <= 1096) {
+@@ -2737,6 +2755,14 @@ void ProtocolGame::parsePlayerSkills(const InputMessagePtr& msg) const
+     }
+ 
+     if (g_game.getFeature(Otc::GameCharacterSkillStats)) {
++        // FoxWorld sends per-element magic-level bonuses before the extended
++        // character skill statistics block.
++        const uint8_t magicBonusCount = msg->getU8();
++        for (uint8_t i = 0; i < magicBonusCount; ++i) {
++            msg->getU8(); // element type
++            msg->getU16(); // magic-level bonus
++        }
++
+         //msg->getU8(); //  GameConcotions ??
+         const uint32_t capacity = msg->getU32() / 100; // base + bonus capacity
+         const uint32_t baseCapacity = msg->getU32() / 100; // base capacity
+
